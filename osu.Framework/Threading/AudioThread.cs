@@ -194,10 +194,25 @@ namespace osu.Framework.Threading
             int read = Bass.ChannelGetData(mixer.Value, buffer, length);
 
             if (read > 0)
-                EzLatencyManager.GLOBAL.ObserveOutputPath(buffer, read, thread!.wasapiPullSampleFormat);
+            {
+                applyExclusivePullGain(buffer, read, thread!.exclusivePullGain);
+                EzLatencyManager.GLOBAL.ObserveOutputPath(buffer, read, thread.wasapiPullSampleFormat);
+            }
 
             return read;
         };
+
+        private static unsafe void applyExclusivePullGain(IntPtr buffer, int bytes, float gain)
+        {
+            if (gain == 1f || bytes < 4)
+                return;
+
+            int samples = bytes / 4;
+            float* samplesPtr = (float*)buffer;
+
+            for (int i = 0; i < samples; i++)
+                samplesPtr[i] *= gain;
+        }
 
         private static readonly WasapiNotifyProcedure wasapi_notify_procedure_static = (notify, device, user) =>
         {
@@ -267,6 +282,9 @@ namespace osu.Framework.Threading
         private int wasapiExclusiveRequestedBufferMs;
         private int wasapiExclusiveAppliedBufferMs;
         private int wasapiExclusivePeriodMs;
+        private Errors lastWasapiInitError;
+        private WasapiExclusiveEndpointGain? exclusiveEndpointGain;
+        private volatile float exclusivePullGain = 1f;
         private AcousticLevelMath.SampleFormat wasapiPullSampleFormat = AcousticLevelMath.SampleFormat.IeeeFloat32;
         private NAudioWasapiOutput? naudioDefaultOutput;
         private int? naudioBoundBassDeviceId;
@@ -365,7 +383,10 @@ namespace osu.Framework.Threading
             {
                 Thread.Sleep(100);
             }
-            else if (needsEndpointSettle && outputMode == AudioOutputMode.Default && OperatingSystem.IsWindows() && !DebugUtils.IsNUnitRunning)
+            else if (needsEndpointSettle
+                     && outputMode == AudioOutputMode.Default
+                     && OperatingSystem.IsWindows()
+                     && !DebugUtils.IsNUnitRunning)
             {
                 Thread.Sleep(150);
             }
@@ -375,9 +396,14 @@ namespace osu.Framework.Threading
                                     && OperatingSystem.IsWindows()
                                     && !DebugUtils.IsNUnitRunning;
 
-            // NAudio opens the real WASAPI endpoint itself. Host the BASS decode mixer on NoSound so
-            // Bass.Init does not fight NAudio for the same device (rapid VoiceMeeter switches → BASS_ERROR_UNKNOWN).
-            int bassHostDeviceId = useNAudioDefault ? Bass.NoSoundDevice : deviceId;
+            bool hostBassOnNoSound = (useNAudioDefault || outputMode == AudioOutputMode.WasapiExclusive)
+                                     && RuntimeInfo.OS == RuntimeInfo.Platform.Windows
+                                     && OperatingSystem.IsWindows()
+                                     && !DebugUtils.IsNUnitRunning;
+
+            // NAudio / exclusive WASAPI open the render endpoint themselves. Host the BASS decode mixer on
+            // NoSound so Bass.Init does not take a shared client on the same device (false Busy on exclusive).
+            int bassHostDeviceId = hostBassOnNoSound ? Bass.NoSoundDevice : deviceId;
 
             // Queried before the device is initialised on purpose. Bass.GetDeviceInfo() is an ordinary query,
             // but on Linux a *successful* call still leaves Errors.Parameter in the process-wide Bass.LastError;
@@ -392,6 +418,9 @@ namespace osu.Framework.Threading
 
             if (!tryInitBassDevice(bassHostDeviceId))
             {
+                if (outputMode == AudioOutputMode.WasapiExclusive)
+                    return false;
+
                 if (!useNAudioDefault)
                     return false;
 
@@ -815,6 +844,13 @@ namespace osu.Framework.Threading
                         // Fallback would likely be busy (e.g. browser playing on default), and would mask the real issue.
                         Logger.Log($"Could not map BASS device {bassDeviceId} (driver '{driver}') to a WASAPI output device; refusing to fall back to default (-1).", name: "audio",
                             level: LogLevel.Verbose);
+
+                        if (exclusive)
+                        {
+                            lastWasapiInitError = Errors.Driver;
+                            publishExclusiveWasapiInactive();
+                        }
+
                         return false;
                     }
                 }
@@ -861,20 +897,46 @@ namespace osu.Framework.Threading
                 firstAttemptMs ??= bufferMs;
                 freeWasapi();
 
-                if (!initWasapi(wasapiDevice, exclusive: true, bufferMs))
-                    continue;
-
-                if (bufferMs != firstAttemptMs.Value)
+                if (initWasapi(wasapiDevice, exclusive: true, bufferMs))
                 {
-                    Logger.Log(
-                        $"WASAPI Exclusive buffer ladder stepped up from {firstAttemptMs}ms to {bufferMs}ms (requested={(requestedMs <= 0 ? "auto" : $"{requestedMs}ms")}).",
-                        name: "audio", level: LogLevel.Important);
+                    if (bufferMs != firstAttemptMs.Value)
+                    {
+                        Logger.Log(
+                            $"WASAPI Exclusive buffer ladder stepped up from {firstAttemptMs}ms to {bufferMs}ms (requested={(requestedMs <= 0 ? "auto" : $"{requestedMs}ms")}).",
+                            name: "audio", level: LogLevel.Important);
+                    }
+
+                    return true;
                 }
 
-                return true;
+                Errors error = lastWasapiInitError;
+
+                if (WasapiExclusiveBufferLadder.ShouldAbortLadder(error))
+                {
+                    Logger.Log(
+                        $"WASAPI Exclusive init busy at {bufferMs}ms; not retrying on the audio thread.",
+                        name: "audio",
+                        level: LogLevel.Important);
+                    publishExclusiveWasapiInactive();
+                    return false;
+                }
+
+                Logger.Log(
+                    $"WASAPI Exclusive init {error} at {bufferMs}ms; stepping the buffer ladder.",
+                    name: "audio",
+                    level: LogLevel.Important);
             }
 
+            publishExclusiveWasapiInactive();
             return false;
+        }
+
+        private void publishExclusiveWasapiInactive()
+        {
+            Manager?.SetWindowsOutputRuntime(new AudioManager.WindowsOutputRuntimeInfo(
+                Mode: AudioOutputMode.WasapiExclusive,
+                Active: false,
+                LastError: lastWasapiInitError == Errors.OK ? null : lastWasapiInitError.ToString()));
         }
 
         private bool initWasapi(int wasapiDevice, bool exclusive, int bufferMs)
@@ -936,12 +998,21 @@ namespace osu.Framework.Threading
 
                 bool initialised = BassWasapi.Init(wasapiDevice, Frequency: requestedFrequency, Channels: requestedChannels, Procedure: wasapi_procedure_static, Flags: flags, Buffer: bufferSeconds,
                     Period: periodSeconds, User: wasapiUserPtr);
-                Logger.Log(
-                    $"Initialising BassWasapi for device {wasapiDevice} (exclusive: {exclusive}, buffer: {bufferSeconds:0.###}s, period: {periodSeconds:0.###}s)...{(initialised ? "success!" : "FAILED")}",
-                    name: "audio", level: LogLevel.Verbose);
 
                 if (!initialised)
+                {
+                    lastWasapiInitError = Bass.LastError;
+                    wasapiExclusiveActive = false;
+                    Logger.Log(
+                        $"Initialising BassWasapi for device {wasapiDevice} (exclusive: {exclusive}, buffer: {bufferSeconds:0.###}s, period: {periodSeconds:0.###}s)...FAILED ({lastWasapiInitError})",
+                        name: "audio", level: LogLevel.Verbose);
                     return false;
+                }
+
+                lastWasapiInitError = Errors.OK;
+                Logger.Log(
+                    $"Initialising BassWasapi for device {wasapiDevice} (exclusive: {exclusive}, buffer: {bufferSeconds:0.###}s, period: {periodSeconds:0.###}s)...success!",
+                    name: "audio", level: LogLevel.Verbose);
 
                 BassWasapi.GetInfo(out var wasapiInfo);
                 // WASAPIPROC 缓冲始终是 32-bit float。wasapiInfo.Format 是设备格式，BASSWASAPI 自己再转换。
@@ -969,13 +1040,6 @@ namespace osu.Framework.Threading
                     Logger.Log(
                         $"WASAPI Exclusive info: Freq={wasapiInfo.Frequency}, Chans={wasapiInfo.Channels}, Format={wasapiInfo.Format}, requested={bufferMs}ms applied={actualBufferMs}ms period={periodMs}ms",
                         name: "audio", level: level);
-
-                    Manager?.SetWindowsOutputRuntime(new AudioManager.WindowsOutputRuntimeInfo(
-                        Mode: AudioOutputMode.WasapiExclusive,
-                        Active: true,
-                        WasapiBufferMs: actualBufferMs,
-                        WasapiPeriodMs: periodMs,
-                        WasapiRequestedBufferMs: bufferMs));
                 }
                 else
                 {
@@ -986,7 +1050,8 @@ namespace osu.Framework.Threading
 
                 if (globalMixerHandle.Value == 0)
                 {
-                    Logger.Log($"Failed to create WASAPI mixer stream for device {wasapiDevice}: {Bass.LastError}", name: "audio", level: LogLevel.Error);
+                    lastWasapiInitError = Bass.LastError;
+                    Logger.Log($"Failed to create WASAPI mixer stream for device {wasapiDevice}: {lastWasapiInitError}", name: "audio", level: LogLevel.Error);
                     freeWasapi();
                     return false;
                 }
@@ -995,27 +1060,44 @@ namespace osu.Framework.Threading
 
                 if (!BassWasapi.Start())
                 {
-                    Logger.Log($"BassWasapi.Start() failed for device {wasapiDevice}: {Bass.LastError}", name: "audio", level: LogLevel.Error);
+                    lastWasapiInitError = Bass.LastError;
+                    Logger.Log($"BassWasapi.Start() failed for device {wasapiDevice}: {lastWasapiInitError}", name: "audio", level: LogLevel.Error);
                     freeWasapi();
                     return false;
+                }
+
+                if (exclusive)
+                {
+                    if (OperatingSystem.IsWindows())
+                        attachExclusiveEndpointGain(wasapiDevice, globalMixerHandle.Value);
+
+                    Manager?.SetWindowsOutputRuntime(new AudioManager.WindowsOutputRuntimeInfo(
+                        Mode: AudioOutputMode.WasapiExclusive,
+                        Active: true,
+                        WasapiBufferMs: wasapiExclusiveAppliedBufferMs > 0 ? wasapiExclusiveAppliedBufferMs : null,
+                        WasapiPeriodMs: wasapiExclusivePeriodMs > 0 ? wasapiExclusivePeriodMs : null,
+                        WasapiRequestedBufferMs: wasapiExclusiveRequestedBufferMs));
                 }
 
                 return true;
             }
             catch (DllNotFoundException e)
             {
+                lastWasapiInitError = Bass.LastError;
                 logWasapiNativeUnavailableOnce($"WASAPI output is unavailable because basswasapi.dll could not be loaded ({e.Message}).");
                 freeWasapi();
                 return false;
             }
             catch (EntryPointNotFoundException e)
             {
+                lastWasapiInitError = Bass.LastError;
                 logWasapiNativeUnavailableOnce($"WASAPI output is unavailable because basswasapi.dll is incompatible/mismatched ({e.Message}).");
                 freeWasapi();
                 return false;
             }
             catch (Exception e)
             {
+                lastWasapiInitError = Bass.LastError;
                 Logger.Log($"WASAPI init failed with exception: {e}", name: "audio", level: LogLevel.Error);
                 freeWasapi();
                 return false;
@@ -1060,6 +1142,13 @@ namespace osu.Framework.Threading
             }
             finally
             {
+                if (OperatingSystem.IsWindows())
+                {
+                    exclusiveEndpointGain?.Dispose();
+                    exclusiveEndpointGain = null;
+                    exclusivePullGain = 1f;
+                }
+
                 if (hadWasapi)
                     wasapiOrAsioWasActive = true;
 
@@ -1068,8 +1157,27 @@ namespace osu.Framework.Threading
                 wasapiExclusiveAppliedBufferMs = 0;
                 wasapiExclusivePeriodMs = 0;
                 globalMixerHandle.Value = null;
-                Thread.Sleep(50);
+
+                if (hadWasapi)
+                    Thread.Sleep(50);
             }
+        }
+
+        [SupportedOSPlatform("windows")]
+        private void attachExclusiveEndpointGain(int wasapiDevice, int? mixerHandle)
+        {
+            exclusiveEndpointGain?.Dispose();
+            exclusiveEndpointGain = null;
+
+            if (mixerHandle is not int handle || handle == 0)
+                return;
+
+            string? endpointId = null;
+
+            if (wasapiDevice >= 0 && BassWasapi.GetDeviceInfo(wasapiDevice, out WasapiDeviceInfo info))
+                endpointId = info.ID;
+
+            exclusiveEndpointGain = WasapiExclusiveEndpointGain.TryAttach(endpointId, handle, Scheduler, gain => exclusivePullGain = gain);
         }
 
         private bool initNAudioDefault(int bassDeviceId)
