@@ -26,14 +26,14 @@ namespace osu.Framework.Audio.EzLatency
         private readonly Action onPollTimeout;
         private readonly Action<double, double, double, double> recordHardware;
 
-#pragma warning disable CS0618 // WasapiLoopbackCapture is obsolete in NAudio 3 but still the simplest system-wide loopback API.
-        private WasapiLoopbackCapture? capture;
-#pragma warning restore CS0618
+        private WasapiRecorder? capture;
         private MMDevice? device;
         private string? boundDriverId;
         private volatile bool armed;
         private double armedInputTime;
         private float threshold = default_threshold;
+        private volatile float peakRms;
+        private volatile float currentRms;
         private bool disposed;
         private Timer? pollTimer;
 
@@ -59,6 +59,12 @@ namespace osu.Framework.Audio.EzLatency
             set => threshold = Math.Clamp(value, 0.0001f, 1f);
         }
 
+        /// <summary>Highest RMS observed on the current capture (0–1 linear).</summary>
+        public float PeakRms => peakRms;
+
+        /// <summary>RMS of the latest loopback buffer (0–1 linear).</summary>
+        public float CurrentRms => currentRms;
+
         /// <summary>
         /// Opens (or reopens) loopback on the render endpoint matching <paramref name="bassDriverId"/>.
         /// </summary>
@@ -71,28 +77,47 @@ namespace osu.Framework.Audio.EzLatency
             {
                 if (capture != null && string.Equals(boundDriverId, bassDriverId, StringComparison.OrdinalIgnoreCase))
                     return true;
+            }
 
-                stopCaptureLocked();
+            stopCapture();
 
-                try
+            MMDevice? opened = null;
+            WasapiRecorder? started = null;
+            bool attached = false;
+
+            try
+            {
+                opened = WindowsAudioFormatQuery.TryOpenPlaybackDevice(bassDriverId);
+
+                if (opened == null)
                 {
-                    device = WindowsAudioFormatQuery.TryOpenPlaybackDevice(bassDriverId);
+                    Logger.Log("[EzLatency] acoustic loopback: no MMDevice for current output.", name: "ez_runtime", level: LogLevel.Debug);
+                    return false;
+                }
 
-                    if (device == null)
+                started = new WasapiRecorderBuilder()
+                          .WithDevice(opened)
+                          .WithLoopbackCapture()
+                          .WithBufferLength(20)
+                          .Build();
+                started.DataAvailable += onDataAvailable;
+                started.RecordingStopped += onRecordingStopped;
+
+                lock (sync)
+                {
+                    if (disposed)
                     {
-                        Logger.Log("[EzLatency] acoustic loopback: no MMDevice for current output.", name: "ez_runtime", level: LogLevel.Debug);
+                        started.Dispose();
+                        opened.Dispose();
                         return false;
                     }
 
-#pragma warning disable CS0618
-                    capture = new WasapiLoopbackCapture(device);
-#pragma warning restore CS0618
-                    capture.DataAvailable += onDataAvailable;
-                    capture.RecordingStopped += onRecordingStopped;
-                    capture.StartRecording();
-                    boundDriverId = bassDriverId ?? device.ID;
-
-                    // Ensure soft-timeout can fire even if DataAvailable is quiet/silent.
+                    device = opened;
+                    capture = started;
+                    boundDriverId = bassDriverId ?? opened.ID;
+                    peakRms = 0;
+                    currentRms = 0;
+                    attached = true;
                     pollTimer?.Dispose();
                     pollTimer = new Timer(_ =>
                     {
@@ -102,27 +127,46 @@ namespace osu.Framework.Audio.EzLatency
                         }
                         catch
                         {
-                            // best-effort
                         }
                     }, null, 50, 50);
+                }
 
-                    Logger.Log($"[EzLatency] acoustic loopback started on {device.FriendlyName}", name: "ez_runtime", level: LogLevel.Debug);
-                    return true;
-                }
-                catch (Exception ex)
+                started.StartRecording();
+                Logger.Log($"[EzLatency] acoustic loopback started on {opened.FriendlyName}", name: "ez_runtime", level: LogLevel.Debug);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"[EzLatency] acoustic loopback start failed: {ex.Message}", name: "ez_runtime", level: LogLevel.Debug);
+
+                if (attached)
                 {
-                    Logger.Log($"[EzLatency] acoustic loopback start failed: {ex.Message}", name: "ez_runtime", level: LogLevel.Debug);
-                    stopCaptureLocked();
-                    return false;
+                    stopCapture();
                 }
+                else
+                {
+                    try
+                    {
+                        started?.Dispose();
+                    }
+                    catch
+                    {
+                    }
+
+                    try
+                    {
+                        opened?.Dispose();
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                return false;
             }
         }
 
-        public void Stop()
-        {
-            lock (sync)
-                stopCaptureLocked();
-        }
+        public void Stop() => stopCapture();
 
         public void Arm(double inputTimeMs)
         {
@@ -132,7 +176,7 @@ namespace osu.Framework.Audio.EzLatency
 
         public void Disarm() => armed = false;
 
-        private void onDataAvailable(object? sender, WaveInEventArgs e)
+        private void onDataAvailable(ReadOnlySpan<byte> buffer, AudioClientBufferFlags flags, long devicePosition, long qpcPosition)
         {
             try
             {
@@ -143,14 +187,31 @@ namespace osu.Framework.Audio.EzLatency
                 // best-effort
             }
 
-            if (!armed || e.BytesRecorded <= 0 || capture == null)
+            var cap = capture;
+
+            bool silent = (flags & AudioClientBufferFlags.Silent) != 0;
+
+            if (cap == null || buffer.IsEmpty || silent)
+            {
+                if (cap != null && silent)
+                    currentRms = 0;
+
+                return;
+            }
+
+            float rms = AcousticLevelMath.ComputeRms(buffer, toSampleFormat(cap.WaveFormat));
+            currentRms = rms;
+
+            if (rms > peakRms)
+                peakRms = rms;
+
+            if (!armed)
                 return;
 
             double now = getTimestamp();
             if (now - armedInputTime < ignore_after_arm_ms)
                 return;
 
-            float rms = AcousticLevelMath.ComputeRms(e.Buffer, e.BytesRecorded, toSampleFormat(capture.WaveFormat));
             if (rms < threshold)
                 return;
 
@@ -185,35 +246,55 @@ namespace osu.Framework.Audio.EzLatency
             return AcousticLevelMath.SampleFormat.Unsupported;
         }
 
-        private void stopCaptureLocked()
+        private void stopCapture()
         {
-            armed = false;
+            WasapiRecorder? captureToStop;
+            MMDevice? deviceToDispose;
+            Timer? timerToDispose;
 
-            pollTimer?.Dispose();
-            pollTimer = null;
+            lock (sync)
+            {
+                armed = false;
+                timerToDispose = pollTimer;
+                pollTimer = null;
+                captureToStop = capture;
+                capture = null;
+                deviceToDispose = device;
+                device = null;
+                boundDriverId = null;
+                currentRms = 0;
 
-            if (capture != null)
+                if (captureToStop != null)
+                {
+                    captureToStop.DataAvailable -= onDataAvailable;
+                    captureToStop.RecordingStopped -= onRecordingStopped;
+                }
+            }
+
+            timerToDispose?.Dispose();
+
+            if (captureToStop != null)
             {
                 try
                 {
-                    capture.DataAvailable -= onDataAvailable;
-                    capture.RecordingStopped -= onRecordingStopped;
-
-                    if (capture.CaptureState != CaptureState.Stopped)
-                        capture.StopRecording();
+                    if (captureToStop.CaptureState != CaptureState.Stopped)
+                        captureToStop.StopRecording();
                 }
                 catch (Exception ex)
                 {
                     Logger.Log($"[EzLatency] acoustic loopback stop failed: {ex.Message}", name: "ez_runtime", level: LogLevel.Debug);
                 }
 
-                capture.Dispose();
-                capture = null;
+                captureToStop.Dispose();
             }
 
-            device?.Dispose();
-            device = null;
-            boundDriverId = null;
+            try
+            {
+                deviceToDispose?.Dispose();
+            }
+            catch
+            {
+            }
         }
 
         public void Dispose()

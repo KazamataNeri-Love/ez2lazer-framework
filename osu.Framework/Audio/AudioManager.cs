@@ -890,6 +890,12 @@ namespace osu.Framework.Audio
         public AudioMixer CreateAudioMixer(string identifier = null) =>
             createAudioMixer(SampleMixer, !string.IsNullOrEmpty(identifier) ? identifier : $"user #{Interlocked.Increment(ref userMixerID)}");
 
+        internal void ReleaseNativeMixers()
+        {
+            foreach (var mixer in Items.OfType<BassAudioMixer>())
+                mixer.ReleaseNativeHandle();
+        }
+
         private AudioMixer createAudioMixer(AudioMixer fallbackMixer, string identifier)
         {
             // Always use BassAudioMixer. Output backends differ by mode:
@@ -1059,7 +1065,8 @@ namespace osu.Framework.Audio
             void handleExplicitSelectionFailed()
             {
                 // Headless tests explicitly select "No sound", which is a BASS internal device.
-                if (DebugUtils.IsNUnitRunning && trySetDevice(Bass.NoSoundDevice, AudioOutputMode.Default))
+                if (DebugUtils.IsNUnitRunning && !AudioThread.AllowRealWindowsAudioOutput
+                    && trySetDevice(Bass.NoSoundDevice, AudioOutputMode.Default))
                     return;
 
                 var (outputMode, failedDeviceName) = parseSelection(AudioDevice.Value);
@@ -1098,7 +1105,7 @@ namespace osu.Framework.Audio
                     return false;
 
                 // we don't want bass initializing with real audio device on headless test runs.
-                if (deviceId != Bass.NoSoundDevice && DebugUtils.IsNUnitRunning)
+                if (deviceId != Bass.NoSoundDevice && DebugUtils.IsNUnitRunning && !AudioThread.AllowRealWindowsAudioOutput)
                     return false;
 
                 // initialize new device
