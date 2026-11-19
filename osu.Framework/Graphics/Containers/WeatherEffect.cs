@@ -44,7 +44,7 @@ namespace osu.Framework.Graphics.Containers
     }
 
     /// <summary>
-    /// Light curtain density (0.1–8), brightness (0–2), downward falloff (0.1–8), and sway amplitude (0–1).
+    /// Light curtain fold scale (0.1–8), brightness (0–2), downward falloff (0.1–8), and sway amplitude (0–1).
     /// </summary>
     public readonly record struct UnderwaterLightCurtainSettings(float Scale, float Brightness, float Falloff, float Sway)
     {

@@ -29,10 +29,10 @@ weather.OvercastRain = weather.OvercastRain with { Density = 0.6f, Wind = -0.4f 
   0.65）、色调强度 `Tint`（0–1，默认 0.3）。
 - `OvercastRain`：分层细雨、风向偏移、阴天去饱和与压暗。`OvercastRainSettings` 包含密度 `Density`（0–1，默认 0.45）、风向 `Wind`
   （−2–2，默认 0.2）、阴天程度 `Cloudiness`（0–1，默认 0.4）。
-- `UnderwaterLightCurtain`：海底平视视角的蓝青极光光帘，从画面顶部垂落，柔边光带缓慢起伏并向下消散。
-  `UnderwaterLightCurtainSettings` 包含密度 `Scale`（0.1–8，默认 1）、亮度 `Brightness`（0–2，默认 0.5）、向下衰减速度
+- `UnderwaterLightCurtain`：海底平视视角的蓝青薄光幕，三层柔和的扇形光面以不同速度摆动和展开，亮度由上向下连续衰减。
+  `UnderwaterLightCurtainSettings` 包含褶皱尺度 `Scale`（0.1–8，默认 1）、亮度 `Brightness`（0–2，默认 0.5）、向下衰减速度
   `Falloff`（0.1–8，默认 2）和摆动幅度 `Sway`（0–1，默认 0.35）。`Falloff` 越高，光帘越快淡出；亮度为零时保留原图。
-  该效果通过二维着色器模拟柔光，可与现有 `Underwater` 焦散波光独立选择。
+  该效果通过二维着色器模拟光幕的透光、远近色差和翻转，可与现有 `Underwater` 焦散波光独立选择。
 - `Intensity`：0–1，默认 1；为 0 时完全直通。`AnimationSpeed`：0–10，默认 1，为 0 时冻结天气动画。
 - `PreviewTime`：可空的固定预览时间，单位秒，范围 0–86400。设置后暂停天气时间推进，便于复现截图；设为 `null`
   后从原动画进度继续。天气暂停不会停止子树动画或输入。
@@ -68,7 +68,8 @@ weather.UnderwaterLightCurtain = UnderwaterLightCurtainSettings.Default with
 `TestSwitchingPreservesChildrenAndInput` 和 `TestAnimationClock` 同时作为可交互测试和 NUnit 自动化回归用例。
 
 点击 `preview underwater light curtain`，或运行 `TestUnderwaterLightCurtainPreview`，可切换到深海蓝渐变背景，左侧为原图，右侧为蓝青光帘。
-`curtain:` 开头的四个滑块调节密度、亮度、向下衰减和摆动；动画速度与固定时间沿用公共控件。点击 `use comparison grid` 恢复网格背景。
+点击 `wide light curtain preview` 可展开为宽幅预览。两个光幕预览入口都会恢复实时播放，顶部显示 `Live`、`Fixed` 或 `Paused`。可以用 `freeze at preview time` 定格，或用 `resume live animation` 继续。
+`curtain:` 开头的四个滑块调节褶皱尺度、亮度、向下衰减和摆动。点击 `use comparison grid` 恢复网格背景。
 
 ## 自动验证
 
@@ -95,5 +96,5 @@ dotnet test osu.Framework.Tests --no-build --filter 'FullyQualifiedName=osu.Fram
 ```
 
 GPU 用例验证四种效果改变画面、不同时间有动画、固定时间可复现、零强度直通、场景切换、透明区域、颜色与透明度、父级圆角、子树外画面和前景不受影响，以及改变尺寸与旋转。
-光帘额外验证上部增亮高于下部、参数修改改变画面，以及 Test Browser 中的深海预览。截图保存在测试工作目录的
+光帘额外验证上部增亮高于下部、参数修改改变画面、宽幅光幕在多个时间点的运动，以及 Test Browser 从定格和零速恢复实时播放后的画面变化。截图保存在测试工作目录的
 `weather-screenshots/<backend>/` 并附加到测试结果；测试不会自动在无 GPU 的 CI 中执行。

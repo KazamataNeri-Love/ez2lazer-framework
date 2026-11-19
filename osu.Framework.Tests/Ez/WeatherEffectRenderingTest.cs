@@ -188,9 +188,24 @@ namespace osu.Framework.Tests.Ez
                     Assert.That(difference(curtain, tuned, 0.56f, 0.16f, 0.36f, 0.6f), Is.GreaterThan(0.1), $"Curtain {name} did not change the light.");
                 }
 
+                using var wideCurtain = await capture("curtain-wide-front-view", () =>
+                {
+                    weather.UnderwaterLightCurtain = UnderwaterLightCurtainSettings.Default;
+                    clipped.Size = new Vector2(0.94f, 0.8f);
+                    clipped.X = 0.03f;
+                }).ConfigureAwait(false);
+                foreach (double time in new[] { 9.0, 17.0 })
+                {
+                    using var movingVeil = await capture($"curtain-wide-time-{time:0}", () => weather.PreviewTime = time).ConfigureAwait(false);
+                    Assert.That(difference(wideCurtain, movingVeil, 0.06f, 0.16f, 0.86f, 0.4f), Is.GreaterThan(0.5), "The layered veils did not move across the wide scene.");
+                }
+
                 // Neutral shader parameters must preserve geometry and colour, including the container's own tint and alpha.
                 await onUpdate(() =>
                 {
+                    clipped.Size = new Vector2(0.45f, 0.8f);
+                    clipped.X = 0.52f;
+                    weather.PreviewTime = 5;
                     weather.Clear();
                     weather.Add(new Box { RelativeSizeAxes = Axes.Both, Colour = new Color4(0.4f, 0.6f, 0.8f, 1) });
                     weather.Scope = WeatherEffectScope.Global;
@@ -294,6 +309,17 @@ namespace osu.Framework.Tests.Ez
                     scroll!.ScrollTo(firstCurtainSlider, animated: false);
                 }).ConfigureAwait(false);
                 Assert.That(preview.Width, Is.EqualTo(controls.Width));
+                await onUpdate(() =>
+                {
+                    // The comparison capture left the time fixed. Check that the wide preview plays even after a pause.
+                    var speedSlider = laboratory.StepsContainer.OfType<StepSlider<float>>().ElementAt(1);
+                    speedSlider.Current.Value = 0;
+                }).ConfigureAwait(false);
+                using var livePreview = await capture("debug-light-curtain-wide", laboratory.ShowWideLightCurtainPreview).ConfigureAwait(false);
+                await Task.Delay(1100).ConfigureAwait(false);
+                using var livePreviewLater = await capture("debug-light-curtain-wide-later", () => { }).ConfigureAwait(false);
+                Assert.That(difference(livePreview, livePreviewLater, 0.4f, 0.18f, 0.58f, 0.43f), Is.GreaterThan(0.5),
+                    "The live preview did not animate its light sheets after a pause.");
             }
 
             private Task onUpdate(Action action)

@@ -12,6 +12,7 @@ using osu.Framework.Graphics.Shapes;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Graphics.UserInterface;
 using osu.Framework.Testing;
+using osu.Framework.Testing.Drawables.Steps;
 using osu.Framework.Timing;
 using osuTK;
 using osuTK.Graphics;
@@ -25,11 +26,13 @@ namespace osu.Framework.Tests.Visual.Ez
         public override bool AutomaticallyRunFirstStep => false;
 
         private WeatherEffectContainer weather = null!;
+        private Container originalPanel = null!;
         private WeatherTestBackground originalBackground = null!;
         private WeatherTestBackground effectBackground = null!;
         private BasicButton childButton = null!;
         private BasicButton foregroundButton = null!;
         private SpriteText? status;
+        private StepSlider<float>? animationSpeedSlider;
         private int childClicks;
         private int foregroundClicks;
 
@@ -45,7 +48,7 @@ namespace osu.Framework.Tests.Visual.Ez
             Clear();
             childClicks = foregroundClicks = 0;
             Add(status = new SpriteText { Font = FrameworkFont.Regular.With(size: 15) });
-            Add(new Container
+            Add(originalPanel = new Container
             {
                 RelativeSizeAxes = Axes.Both,
                 Size = new Vector2(0.48f, 0.9f),
@@ -105,7 +108,10 @@ namespace osu.Framework.Tests.Visual.Ez
         {
             base.Update();
             if (status != null)
-                status.Text = $"{weather.Effect} | {weather.Scope} | gameplay: {weather.IsGameplay} | active: {weather.IsEffectActive} | time: {weather.AnimationTime:F2}s";
+            {
+                string playback = weather.PreviewTime.HasValue ? "Fixed" : weather.AnimationSpeed == 0 ? "Paused" : "Live";
+                status.Text = $"{weather.Effect} | {weather.Scope} | gameplay: {weather.IsGameplay} | active: {weather.IsEffectActive} | {playback}: {weather.AnimationTime:F2}s";
+            }
         }
 
         [Test]
@@ -116,8 +122,10 @@ namespace osu.Framework.Tests.Visual.Ez
                 AddStep($"weather: {effect}", () => weather.Effect = effect);
             AddStep("preview heat", () => weather.Effect = WeatherEffect.DesertHeat);
             AddStep("preview underwater light curtain", ShowLightCurtainPreview);
+            AddStep("wide light curtain preview", ShowWideLightCurtainPreview);
             AddStep("use comparison grid", () =>
             {
+                restoreComparison();
                 originalBackground.SetDeepWater(false);
                 effectBackground.SetDeepWater(false);
             });
@@ -126,22 +134,28 @@ namespace osu.Framework.Tests.Visual.Ez
             AddStep("scope: global", () => weather.Scope = WeatherEffectScope.Global);
             AddToggleStep("simulate gameplay", value => weather.IsGameplay = value);
             AddSliderStep("intensity", 0f, 1f, 1f, value => weather.Intensity = value);
-            AddSliderStep("animation speed / 0 pauses", 0f, 4f, 1f, value => weather.AnimationSpeed = value);
-            AddToggleStep("fixed preview time", value => weather.PreviewTime = value ? previewSeconds : null);
+            Scheduler.Add(() =>
+            {
+                StepsContainer.Add(animationSpeedSlider = new StepSlider<float>("animation speed / 0 pauses", 0, 4, 1)
+                {
+                    ValueChanged = value => weather.AnimationSpeed = value,
+                });
+            }, false);
+            AddStep("freeze at preview time", () => weather.PreviewTime = previewSeconds);
             AddSliderStep("preview time (seconds)", 0f, 60f, 5f, value =>
             {
                 previewSeconds = value;
                 if (weather.PreviewTime.HasValue)
                     weather.PreviewTime = value;
             });
-            AddStep("resume live animation", () => weather.PreviewTime = null);
+            AddStep("resume live animation", resumeLiveAnimation);
             AddSliderStep("heat: distortion (px)", 0f, 32f, 4f, value => weather.DesertHeat = weather.DesertHeat with { Amplitude = value });
             AddSliderStep("heat: wave scale", 0.1f, 8f, 1f, value => weather.DesertHeat = weather.DesertHeat with { Scale = value });
             AddSliderStep("heat: warm tint", 0f, 1f, 0.15f, value => weather.DesertHeat = weather.DesertHeat with { Tint = value });
             AddSliderStep("water: caustic scale", 0.1f, 8f, 1f, value => weather.Underwater = weather.Underwater with { Scale = value });
             AddSliderStep("water: brightness", 0f, 2f, 0.65f, value => weather.Underwater = weather.Underwater with { Brightness = value });
             AddSliderStep("water: blue-green tint", 0f, 1f, 0.3f, value => weather.Underwater = weather.Underwater with { Tint = value });
-            AddSliderStep("curtain: density", 0.1f, 8f, 1f, value => weather.UnderwaterLightCurtain = weather.UnderwaterLightCurtain with { Scale = value });
+            AddSliderStep("curtain: fold scale", 0.1f, 8f, 1f, value => weather.UnderwaterLightCurtain = weather.UnderwaterLightCurtain with { Scale = value });
             AddSliderStep("curtain: brightness", 0f, 2f, 0.5f, value => weather.UnderwaterLightCurtain = weather.UnderwaterLightCurtain with { Brightness = value });
             AddSliderStep("curtain: downward falloff", 0.1f, 8f, 2f, value => weather.UnderwaterLightCurtain = weather.UnderwaterLightCurtain with { Falloff = value });
             AddSliderStep("curtain: sway", 0f, 1f, 0.35f, value => weather.UnderwaterLightCurtain = weather.UnderwaterLightCurtain with { Sway = value });
@@ -152,11 +166,13 @@ namespace osu.Framework.Tests.Visual.Ez
             AddSliderStep("panel opacity", 0.1f, 1f, 1f, value => weather.Alpha = value);
             AddStep("reset all weather parameters", () =>
             {
+                restoreComparison();
                 weather.Effect = WeatherEffect.DesertHeat;
                 weather.Scope = WeatherEffectScope.Global;
                 weather.IsGameplay = false;
                 weather.Intensity = weather.AnimationSpeed = weather.Alpha = 1;
-                weather.PreviewTime = null;
+                animationSpeedSlider?.Current.SetDefault();
+                resumeLiveAnimation();
                 weather.DesertHeat = DesertHeatSettings.Default;
                 weather.Underwater = UnderwaterSettings.Default;
                 weather.UnderwaterLightCurtain = UnderwaterLightCurtainSettings.Default;
@@ -169,9 +185,36 @@ namespace osu.Framework.Tests.Visual.Ez
 
         public void ShowLightCurtainPreview()
         {
+            restoreComparison();
             weather.Effect = WeatherEffect.UnderwaterLightCurtain;
+            resumeLiveAnimation();
             originalBackground.SetDeepWater(true);
             effectBackground.SetDeepWater(true);
+        }
+
+        private void resumeLiveAnimation()
+        {
+            weather.PreviewTime = null;
+            if (weather.AnimationSpeed > 0)
+                return;
+
+            weather.AnimationSpeed = 1;
+            animationSpeedSlider?.Current.SetDefault();
+        }
+
+        public void ShowWideLightCurtainPreview()
+        {
+            ShowLightCurtainPreview();
+            originalPanel.Hide();
+            weather.Width = 1;
+            weather.X = 0;
+        }
+
+        private void restoreComparison()
+        {
+            originalPanel.Show();
+            weather.Width = 0.48f;
+            weather.X = 0.52f;
         }
 
         [Test]
@@ -179,6 +222,16 @@ namespace osu.Framework.Tests.Visual.Ez
         {
             AddStep("show deep-water light curtain", ShowLightCurtainPreview);
             AddAssert("light curtain is active", () => weather.Effect == WeatherEffect.UnderwaterLightCurtain && weather.IsEffectActive);
+            AddStep("freeze the last preview and set animation speed to zero", () =>
+            {
+                weather.PreviewTime = 5;
+                weather.AnimationSpeed = 0;
+            });
+            AddStep("show wide light curtain", ShowWideLightCurtainPreview);
+            AddAssert("wide preview fills the scene", () => weather.Width == 1 && weather.X == 0 && originalPanel.Alpha == 0);
+            AddAssert("wide preview resumes live animation", () => weather.PreviewTime == null && weather.AnimationSpeed > 0);
+            AddStep("restore comparison preview", ShowLightCurtainPreview);
+            AddAssert("comparison layout is restored", () => weather.Width == 0.48f && weather.X == 0.52f && originalPanel.Alpha == 1);
         }
 
         [TestCase(WeatherEffect.DesertHeat)]
