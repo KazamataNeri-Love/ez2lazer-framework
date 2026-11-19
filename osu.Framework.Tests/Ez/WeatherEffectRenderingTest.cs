@@ -13,6 +13,7 @@ using osu.Framework.Configuration;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
+using osu.Framework.Testing;
 using osu.Framework.Tests.Visual.Ez;
 using osuTK;
 using osuTK.Graphics;
@@ -221,19 +222,23 @@ namespace osu.Framework.Tests.Ez
                 Assert.That(windowResize.Width, Is.Not.EqualTo(resized.Width), "The window was not resized.");
                 Assert.That(windowResize.Height, Is.Not.EqualTo(resized.Height));
 
-                using var controls = await capture("debug-controls", () =>
+                var sceneLoaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                await onUpdate(() =>
                 {
                     Clear();
-                    var laboratory = new TestSceneWeatherEffects();
-                    Add(laboratory);
-                    laboratory.SetUpWeather();
-                    laboratory.TestTune();
+                    var browser = new TestBrowser();
+                    browser.TestTypes.Clear();
+                    browser.TestTypes.Add(typeof(TestSceneWeatherEffects));
+                    browser.OnLoadComplete += _ => browser.CurrentTest.OnLoadComplete += _ => sceneLoaded.SetResult();
+                    Add(browser);
                 }).ConfigureAwait(false);
+                await sceneLoaded.Task.WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+                using var controls = await capture("debug-controls", () => { }).ConfigureAwait(false);
                 int textPixels = 0;
 
-                for (int y = 25; y < controls.Height; y++)
+                for (int y = 75; y < controls.Height; y++)
                 {
-                    for (int x = 10; x < 170; x++)
+                    for (int x = 210; x < 370; x++)
                     {
                         Rgba32 pixel = controls[x, y];
                         if (pixel.R > 220 && pixel.G > 220 && pixel.B > 220)

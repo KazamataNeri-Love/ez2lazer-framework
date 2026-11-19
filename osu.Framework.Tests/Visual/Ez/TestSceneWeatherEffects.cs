@@ -4,6 +4,7 @@
 using System;
 using System.Linq;
 using NUnit.Framework;
+using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Colour;
 using osu.Framework.Graphics.Containers;
@@ -30,8 +31,14 @@ namespace osu.Framework.Tests.Visual.Ez
         private int childClicks;
         private int foregroundClicks;
 
+        // Slider initialisation invokes callbacks before the browser executes its queued [SetUp] steps.
+        [BackgroundDependencyLoader]
+        private void load() => createWeather();
+
         [SetUp]
-        public void SetUpWeather() => Schedule(() =>
+        public void SetUpWeather() => Schedule(createWeather);
+
+        private void createWeather()
         {
             Clear();
             childClicks = foregroundClicks = 0;
@@ -83,7 +90,7 @@ namespace osu.Framework.Tests.Visual.Ez
                 Text = "Independent foreground / HUD",
                 Action = () => foregroundClicks++,
             });
-        });
+        }
 
         private static SpriteText label(string text) => new SpriteText
         {

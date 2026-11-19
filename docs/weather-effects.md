@@ -63,6 +63,9 @@ dotnet test osu.Framework.Tests --filter 'FullyQualifiedName~WeatherEffectContai
 普通测试覆盖场景矩阵、参数与枚举校验、实例隔离、uniform 布局、交互、时钟，以及 GLSL / ESSL / HLSL / MSL 实际交叉编译；Windows
 下还验证 HLSL 字节码编译。
 
+`TestSceneWeatherEffectsLoading` 使用真实 Test Browser 加载流程，覆盖首次打开、热重载、重置场景，以及全部 13
+个参数滑块的初始化、修改和恢复默认。
+
 GPU 测试是显式用例，需要桌面和相应图形后端。每次命令启动独立测试进程，因为后端环境变量在进程初始化时读取。
 
 ```powershell
