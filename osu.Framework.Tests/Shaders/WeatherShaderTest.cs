@@ -17,8 +17,11 @@ namespace osu.Framework.Tests.Shaders
     {
         [Test]
         public void TestCompileWeatherShader(
-            [Values(FragmentShaderDescriptor.DESERT_HEAT, FragmentShaderDescriptor.UNDERWATER, FragmentShaderDescriptor.OVERCAST_RAIN)] string fragment,
-            [Values(CrossCompileTarget.GLSL, CrossCompileTarget.ESSL, CrossCompileTarget.HLSL, CrossCompileTarget.MSL)] CrossCompileTarget target)
+            [Values(FragmentShaderDescriptor.DESERT_HEAT, FragmentShaderDescriptor.UNDERWATER, FragmentShaderDescriptor.OVERCAST_RAIN,
+                FragmentShaderDescriptor.UNDERWATER_LIGHT_CURTAIN)]
+            string fragment,
+            [Values(CrossCompileTarget.GLSL, CrossCompileTarget.ESSL, CrossCompileTarget.HLSL, CrossCompileTarget.MSL)]
+            CrossCompileTarget target)
         {
             using var store = new NamespacedResourceStore<byte[]>(new DllResourceStore(typeof(Game).Assembly), "Resources/Shaders");
             var renderer = new GLRenderer();

@@ -36,7 +36,7 @@ namespace osu.Framework.Tests.Visual.Ez
 
                 AddUntilStep("all parameter sliders are loaded", () =>
                     browser.CurrentTest is TestSceneWeatherEffects loaded
-                    && loaded.StepsContainer.OfType<StepSlider<float>>().Count(s => s.IsLoaded) == 13);
+                    && loaded.StepsContainer.OfType<StepSlider<float>>().Count(s => s.IsLoaded) == 17);
                 AddStep("pause automatic test steps", () =>
                 {
                     scene = (TestSceneWeatherEffects)browser.CurrentTest;
@@ -60,6 +60,7 @@ namespace osu.Framework.Tests.Visual.Ez
                         weather.Intensity == 0 && weather.AnimationSpeed == 0 && weather.Alpha == 0.1f
                         && weather.DesertHeat == new DesertHeatSettings(0, 0.1f, 0)
                         && weather.Underwater == new UnderwaterSettings(0.1f, 0, 0)
+                        && weather.UnderwaterLightCurtain == new UnderwaterLightCurtainSettings(0.1f, 0, 0.1f, 0)
                         && weather.OvercastRain == new OvercastRainSettings(0, -2, 0));
                     AddStep("restore slider defaults", () =>
                     {
@@ -70,6 +71,7 @@ namespace osu.Framework.Tests.Visual.Ez
                         weather.Intensity == 1 && weather.AnimationSpeed == 1 && weather.Alpha == 1
                         && weather.DesertHeat == DesertHeatSettings.Default
                         && weather.Underwater == UnderwaterSettings.Default
+                        && weather.UnderwaterLightCurtain == UnderwaterLightCurtainSettings.Default
                         && weather.OvercastRain == OvercastRainSettings.Default);
                 }
             }

@@ -35,6 +35,7 @@ namespace osu.Framework.Tests.Ez
                 Assert.That(weather.DesertHeat, Is.EqualTo(DesertHeatSettings.Default));
                 Assert.That(weather.Underwater, Is.EqualTo(UnderwaterSettings.Default));
                 Assert.That(weather.OvercastRain, Is.EqualTo(OvercastRainSettings.Default));
+                Assert.That(weather.UnderwaterLightCurtain, Is.EqualTo(new UnderwaterLightCurtainSettings(1, 0.5f, 2, 0.35f)));
             });
         }
 
@@ -77,6 +78,10 @@ namespace osu.Framework.Tests.Ez
             yield return range("RainDensity", (w, v) => w.OvercastRain = w.OvercastRain with { Density = v }, 0, 1);
             yield return range("RainWind", (w, v) => w.OvercastRain = w.OvercastRain with { Wind = v }, -2, 2);
             yield return range("Cloudiness", (w, v) => w.OvercastRain = w.OvercastRain with { Cloudiness = v }, 0, 1);
+            yield return range("CurtainScale", (w, v) => w.UnderwaterLightCurtain = w.UnderwaterLightCurtain with { Scale = v }, 0.1f, 8);
+            yield return range("CurtainBrightness", (w, v) => w.UnderwaterLightCurtain = w.UnderwaterLightCurtain with { Brightness = v }, 0, 2);
+            yield return range("CurtainFalloff", (w, v) => w.UnderwaterLightCurtain = w.UnderwaterLightCurtain with { Falloff = v }, 0.1f, 8);
+            yield return range("CurtainSway", (w, v) => w.UnderwaterLightCurtain = w.UnderwaterLightCurtain with { Sway = v }, 0, 1);
         }
 
         private static TestCaseData range(string name, Action<WeatherEffectContainer, float> setter, float min, float max)
@@ -92,6 +97,7 @@ namespace osu.Framework.Tests.Ez
             var heat = weather.DesertHeat;
             var water = weather.Underwater;
             var rain = weather.OvercastRain;
+            var curtain = weather.UnderwaterLightCurtain;
             float intensity = weather.Intensity;
             float speed = weather.AnimationSpeed;
 
@@ -103,6 +109,7 @@ namespace osu.Framework.Tests.Ez
                 Assert.That(weather.DesertHeat, Is.EqualTo(heat));
                 Assert.That(weather.Underwater, Is.EqualTo(water));
                 Assert.That(weather.OvercastRain, Is.EqualTo(rain));
+                Assert.That(weather.UnderwaterLightCurtain, Is.EqualTo(curtain));
                 Assert.That(weather.Intensity, Is.EqualTo(intensity));
                 Assert.That(weather.AnimationSpeed, Is.EqualTo(speed));
             });
@@ -128,8 +135,10 @@ namespace osu.Framework.Tests.Ez
             using var second = new WeatherEffectContainer();
             second.Effect = WeatherEffect.Underwater;
             weather.DesertHeat = weather.DesertHeat with { Amplitude = 32 };
+            weather.UnderwaterLightCurtain = new UnderwaterLightCurtainSettings(2, 1.5f, 4, 0.8f);
             weather.Scope = WeatherEffectScope.Gameplay;
             Assert.That(second.DesertHeat, Is.EqualTo(DesertHeatSettings.Default));
+            Assert.That(second.UnderwaterLightCurtain, Is.EqualTo(UnderwaterLightCurtainSettings.Default));
             Assert.That(second.IsEffectActive, Is.True);
             Assert.That(second.PreviewTime, Is.Null);
             Assert.That(weather.AnimationTime, Is.EqualTo(86400));
@@ -142,10 +151,11 @@ namespace osu.Framework.Tests.Ez
         [Test]
         public void TestUniformLayoutMatchesStd140()
         {
-            Assert.That(Marshal.SizeOf<WeatherEffectContainer.WeatherParameters>(), Is.EqualTo(64));
+            Assert.That(Marshal.SizeOf<WeatherEffectContainer.WeatherParameters>(), Is.EqualTo(80));
             Assert.That(Marshal.OffsetOf<WeatherEffectContainer.WeatherParameters>("Heat").ToInt32(), Is.EqualTo(16));
             Assert.That(Marshal.OffsetOf<WeatherEffectContainer.WeatherParameters>("Water").ToInt32(), Is.EqualTo(32));
             Assert.That(Marshal.OffsetOf<WeatherEffectContainer.WeatherParameters>("Rain").ToInt32(), Is.EqualTo(48));
+            Assert.That(Marshal.OffsetOf<WeatherEffectContainer.WeatherParameters>("Curtain").ToInt32(), Is.EqualTo(64));
         }
     }
 }

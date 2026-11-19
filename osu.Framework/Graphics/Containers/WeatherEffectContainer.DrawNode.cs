@@ -86,6 +86,7 @@ namespace osu.Framework.Graphics.Containers
                 {
                     WeatherEffect.DesertHeat => Source.heatShader,
                     WeatherEffect.Underwater => Source.underwaterShader,
+                    WeatherEffect.UnderwaterLightCurtain => Source.lightCurtainShader,
                     _ => Source.rainShader,
                 };
 
@@ -95,6 +96,8 @@ namespace osu.Framework.Graphics.Containers
                 parameters.Heat = new osuTK.Vector4(Source.DesertHeat.Amplitude, Source.DesertHeat.Scale, Source.DesertHeat.Tint, 0);
                 parameters.Water = new osuTK.Vector4(Source.Underwater.Scale, Source.Underwater.Brightness, Source.Underwater.Tint, 0);
                 parameters.Rain = new osuTK.Vector4(Source.OvercastRain.Density, Source.OvercastRain.Wind, Source.OvercastRain.Cloudiness, 0);
+                parameters.Curtain = new osuTK.Vector4(Source.UnderwaterLightCurtain.Scale, Source.UnderwaterLightCurtain.Brightness,
+                    Source.UnderwaterLightCurtain.Falloff, Source.UnderwaterLightCurtain.Sway);
             }
 
             protected override void DrawContents(IRenderer renderer)
@@ -125,6 +128,7 @@ namespace osu.Framework.Graphics.Containers
             public UniformVector4 Heat;
             public UniformVector4 Water;
             public UniformVector4 Rain;
+            public UniformVector4 Curtain;
         }
     }
 }

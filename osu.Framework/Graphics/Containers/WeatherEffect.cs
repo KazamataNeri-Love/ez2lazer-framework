@@ -9,6 +9,7 @@ namespace osu.Framework.Graphics.Containers
         DesertHeat,
         Underwater,
         OvercastRain,
+        UnderwaterLightCurtain,
     }
 
     public enum WeatherEffectScope
@@ -40,5 +41,13 @@ namespace osu.Framework.Graphics.Containers
     public readonly record struct OvercastRainSettings(float Density, float Wind, float Cloudiness)
     {
         public static OvercastRainSettings Default => new OvercastRainSettings(0.45f, 0.2f, 0.4f);
+    }
+
+    /// <summary>
+    /// Light curtain density (0.1–8), brightness (0–2), downward falloff (0.1–8), and sway amplitude (0–1).
+    /// </summary>
+    public readonly record struct UnderwaterLightCurtainSettings(float Scale, float Brightness, float Falloff, float Sway)
+    {
+        public static UnderwaterLightCurtainSettings Default => new UnderwaterLightCurtainSettings(1, 0.5f, 2, 0.35f);
     }
 }

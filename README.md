@@ -48,7 +48,7 @@ NuGet 包名：`ez2lazer.Framework`（由 Ez2Lazer 主仓的 `Ez2Lazer.Dependenc
 - **局部毛玻璃** `BackdropBlurDrawable`：复用捕获源当帧 draw node，对指定子树做高斯虚化（如 Mania 双 stage）。
 - **全局亚克力** `AcrylicBackdropDrawable`：内容无关地虚化「自身矩形下方已渲染内容」；D3D11 下支持 backbuffer region snapshot，避免闪烁/管线状态破坏。
 - **透视着色**：`BufferedContainer` 真透视 shader（`sh_Perspective.fs`），用于轨道等 2.5D 透视效果。
-- **天气效果** `WeatherEffectContainer`：沙漠热浪、海底波光、阴天细雨，支持全局/游玩中/非游玩中范围和实时调参；[接入与测试](docs/weather-effects.md)。
+- **天气效果** `WeatherEffectContainer`：沙漠热浪、海底波光、蓝青水下光帘、阴天细雨，支持全局/游玩中/非游玩中范围和实时调参；[接入与测试](docs/weather-effects.md)。
 - **无边框不锁帧**：Fullscreen / Borderless 允许 tearing，Unlimited 帧同步不再被合成器顶死。
 
 ### 输入
@@ -144,7 +144,7 @@ NuGet package: `ez2lazer.Framework` (referenced from Ez2Lazer’s `Ez2Lazer.Depe
 - **Local frosted glass** `BackdropBlurDrawable`: reuses capture sources’ current-frame draw nodes and Gaussian-blurs a subtree (e.g. dual Mania stages).
 - **Global acrylic** `AcrylicBackdropDrawable`: content-agnostic blur of whatever is already rendered under the card rect; on D3D11, backbuffer region snapshots avoid flicker / pipeline corruption.
 - **Perspective shader**: true perspective on `BufferedContainer` (`sh_Perspective.fs`) for 2.5D track-style effects.
-- **Weather effects** `WeatherEffectContainer`: desert heat, underwater caustics, and overcast rain with configurable scene scopes and live tuning; [integration and tests](docs/weather-effects.md).
+- **Weather effects** `WeatherEffectContainer`: desert heat, underwater caustics, blue-cyan underwater light curtains, and overcast rain with configurable scene scopes and live tuning; [integration and tests](docs/weather-effects.md).
 - **Uncapped borderless**: tearing allowed in Fullscreen / Borderless so Unlimited frame sync is not clamped by the compositor.
 
 ### Input

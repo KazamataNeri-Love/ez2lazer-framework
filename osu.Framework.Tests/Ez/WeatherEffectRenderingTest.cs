@@ -4,6 +4,7 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,6 +15,7 @@ using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Testing;
+using osu.Framework.Testing.Drawables.Steps;
 using osu.Framework.Tests.Visual.Ez;
 using osuTK;
 using osuTK.Graphics;
@@ -138,7 +140,7 @@ namespace osu.Framework.Tests.Ez
                 using var warmup = await capture("warmup", () => weather.Effect = WeatherEffect.Underwater).ConfigureAwait(false);
                 using var baseline = await capture("00-original", () => weather.Effect = WeatherEffect.None).ConfigureAwait(false);
 
-                foreach (var effect in new[] { WeatherEffect.DesertHeat, WeatherEffect.Underwater, WeatherEffect.OvercastRain })
+                foreach (var effect in new[] { WeatherEffect.DesertHeat, WeatherEffect.Underwater, WeatherEffect.OvercastRain, WeatherEffect.UnderwaterLightCurtain })
                 {
                     using var image = await capture(effect.ToString(), () => weather.Effect = effect).ConfigureAwait(false);
                     Assert.That(difference(baseline, image, 0.54f, 0.12f, 0.4f, 0.68f), Is.GreaterThan(0.2), $"{effect} did not change the scene.");
@@ -162,6 +164,30 @@ namespace osu.Framework.Tests.Ez
                 using var inside = await capture("scope-gameplay", () => weather.IsGameplay = true).ConfigureAwait(false);
                 Assert.That(difference(baseline, inside, 0.54f, 0.12f, 0.4f, 0.68f), Is.GreaterThan(0.2));
 
+                await onUpdate(() =>
+                {
+                    weather.Scope = WeatherEffectScope.Global;
+                    weather.Clear();
+                    weather.Add(new Box { RelativeSizeAxes = Axes.Both, Colour = new Color4(0.02f, 0.06f, 0.12f, 1) });
+                }).ConfigureAwait(false);
+                using var deepWater = await capture("curtain-dark-water", () => weather.Effect = WeatherEffect.None).ConfigureAwait(false);
+                using var curtain = await capture("curtain-front-view", () => weather.Effect = WeatherEffect.UnderwaterLightCurtain).ConfigureAwait(false);
+                double upperLight = difference(deepWater, curtain, 0.56f, 0.16f, 0.36f, 0.14f);
+                double lowerLight = difference(deepWater, curtain, 0.56f, 0.64f, 0.36f, 0.14f);
+                Assert.That(upperLight, Is.GreaterThan(0.5), "The curtain did not illuminate the upper water.");
+                Assert.That(upperLight, Is.GreaterThan(lowerLight * 2), "The curtain did not fade downwards from the surface.");
+
+                foreach (var (name, settings) in new[]
+                         {
+                             ("density", UnderwaterLightCurtainSettings.Default with { Scale = 2 }),
+                             ("falloff", UnderwaterLightCurtainSettings.Default with { Falloff = 0.5f }),
+                             ("sway", UnderwaterLightCurtainSettings.Default with { Sway = 0.9f }),
+                         })
+                {
+                    using var tuned = await capture($"curtain-{name}", () => weather.UnderwaterLightCurtain = settings).ConfigureAwait(false);
+                    Assert.That(difference(curtain, tuned, 0.56f, 0.16f, 0.36f, 0.6f), Is.GreaterThan(0.1), $"Curtain {name} did not change the light.");
+                }
+
                 // Neutral shader parameters must preserve geometry and colour, including the container's own tint and alpha.
                 await onUpdate(() =>
                 {
@@ -173,7 +199,7 @@ namespace osu.Framework.Tests.Ez
                 }).ConfigureAwait(false);
                 using var tinted = await capture("tinted-direct", () => weather.Effect = WeatherEffect.None).ConfigureAwait(false);
 
-                foreach (var effect in new[] { WeatherEffect.DesertHeat, WeatherEffect.Underwater, WeatherEffect.OvercastRain })
+                foreach (var effect in new[] { WeatherEffect.DesertHeat, WeatherEffect.Underwater, WeatherEffect.OvercastRain, WeatherEffect.UnderwaterLightCurtain })
                 {
                     using var neutral = await capture($"{effect}-neutral-tinted", () =>
                     {
@@ -181,6 +207,7 @@ namespace osu.Framework.Tests.Ez
                         weather.DesertHeat = weather.DesertHeat with { Amplitude = 0, Tint = 0 };
                         weather.Underwater = weather.Underwater with { Brightness = 0, Tint = 0 };
                         weather.OvercastRain = weather.OvercastRain with { Density = 0, Cloudiness = 0 };
+                        weather.UnderwaterLightCurtain = weather.UnderwaterLightCurtain with { Brightness = 0 };
                     }).ConfigureAwait(false);
                     // Compare a single opaque child; grouping overlapping translucent children has different semantics.
                     Assert.That(difference(tinted, neutral, 0.83f, 0.68f, 0.08f, 0.08f), Is.LessThan(1), "Container colour/alpha was applied twice or neutral weather changed the scene.");
@@ -191,16 +218,20 @@ namespace osu.Framework.Tests.Ez
                     weather.Colour = Color4.White;
                     weather.Alpha = 1;
                     weather.Underwater = UnderwaterSettings.Default;
+                    weather.UnderwaterLightCurtain = UnderwaterLightCurtainSettings.Default;
                 }).ConfigureAwait(false);
 
-                // The effect must preserve empty pixels, even for a bright caustic over a transparent child subtree.
-                using var transparent = await capture("transparent", () =>
+                // Both water effects must preserve empty pixels over a transparent child subtree.
+                foreach (var effect in new[] { WeatherEffect.Underwater, WeatherEffect.UnderwaterLightCurtain })
                 {
-                    weather.Clear();
-                    weather.Effect = WeatherEffect.Underwater;
-                    weather.Add(new Box { Size = new Vector2(40), Position = new Vector2(80), Colour = Color4.White });
-                }).ConfigureAwait(false);
-                Assert.That(transparent[(int)(transparent.Width * 0.9f), (int)(transparent.Height * 0.75f)], Is.EqualTo(baseline[1, 1]), "Weather filled transparent pixels.");
+                    using var transparent = await capture($"{effect}-transparent", () =>
+                    {
+                        weather.Clear();
+                        weather.Effect = effect;
+                        weather.Add(new Box { Size = new Vector2(40), Position = new Vector2(80), Colour = Color4.White });
+                    }).ConfigureAwait(false);
+                    Assert.That(transparent[(int)(transparent.Width * 0.9f), (int)(transparent.Height * 0.75f)], Is.EqualTo(baseline[1, 1]), "Weather filled transparent pixels.");
+                }
 
                 using var resized = await capture("resized", () =>
                 {
@@ -223,13 +254,18 @@ namespace osu.Framework.Tests.Ez
                 Assert.That(windowResize.Height, Is.Not.EqualTo(resized.Height));
 
                 var sceneLoaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                TestSceneWeatherEffects laboratory = null!;
                 await onUpdate(() =>
                 {
                     Clear();
                     var browser = new TestBrowser();
                     browser.TestTypes.Clear();
                     browser.TestTypes.Add(typeof(TestSceneWeatherEffects));
-                    browser.OnLoadComplete += _ => browser.CurrentTest.OnLoadComplete += _ => sceneLoaded.SetResult();
+                    browser.OnLoadComplete += _ => browser.CurrentTest.OnLoadComplete += loaded =>
+                    {
+                        laboratory = (TestSceneWeatherEffects)loaded;
+                        sceneLoaded.SetResult();
+                    };
                     Add(browser);
                 }).ConfigureAwait(false);
                 await sceneLoaded.Task.WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
@@ -247,6 +283,17 @@ namespace osu.Framework.Tests.Ez
                 }
 
                 Assert.That(textPixels, Is.GreaterThan(50), "Debug parameter labels were not rendered.");
+                using var preview = await capture("debug-light-curtain", () =>
+                {
+                    laboratory.ShowLightCurtainPreview();
+                    laboratory.Children.OfType<WeatherEffectContainer>().Single().PreviewTime = 5;
+                    // Common, heat and caustic controls occupy the first nine sliders.
+                    var firstCurtainSlider = laboratory.StepsContainer.OfType<StepSlider<float>>().ElementAt(9);
+                    var scroll = firstCurtainSlider.FindClosestParent<ScrollContainer<Drawable>>();
+                    Assert.That(scroll, Is.Not.Null, "The curtain parameter panel must be scrollable.");
+                    scroll!.ScrollTo(firstCurtainSlider, animated: false);
+                }).ConfigureAwait(false);
+                Assert.That(preview.Width, Is.EqualTo(controls.Width));
             }
 
             private Task onUpdate(Action action)

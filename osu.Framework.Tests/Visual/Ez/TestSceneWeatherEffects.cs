@@ -19,12 +19,14 @@ using osuTK.Input;
 
 namespace osu.Framework.Tests.Visual.Ez
 {
-    [System.ComponentModel.Description("Weather effects: original comparison, heat haze, underwater caustics, rain, and live tuning")]
+    [System.ComponentModel.Description("Weather effects: heat haze, underwater caustics, blue-cyan light curtains, rain, and live tuning")]
     public partial class TestSceneWeatherEffects : ManualInputManagerTestScene
     {
         public override bool AutomaticallyRunFirstStep => false;
 
         private WeatherEffectContainer weather = null!;
+        private WeatherTestBackground originalBackground = null!;
+        private WeatherTestBackground effectBackground = null!;
         private BasicButton childButton = null!;
         private BasicButton foregroundButton = null!;
         private SpriteText? status;
@@ -52,7 +54,7 @@ namespace osu.Framework.Tests.Visual.Ez
                 CornerRadius = 24,
                 Children = new Drawable[]
                 {
-                    new WeatherTestBackground(),
+                    originalBackground = new WeatherTestBackground(),
                     label("ORIGINAL"),
                 },
             });
@@ -68,7 +70,7 @@ namespace osu.Framework.Tests.Visual.Ez
                 Effect = WeatherEffect.DesertHeat,
                 Children = new Drawable[]
                 {
-                    new WeatherTestBackground(),
+                    effectBackground = new WeatherTestBackground(),
                     label("WEATHER"),
                     childButton = new BasicButton
                     {
@@ -113,6 +115,12 @@ namespace osu.Framework.Tests.Visual.Ez
             foreach (var effect in Enum.GetValues<WeatherEffect>())
                 AddStep($"weather: {effect}", () => weather.Effect = effect);
             AddStep("preview heat", () => weather.Effect = WeatherEffect.DesertHeat);
+            AddStep("preview underwater light curtain", ShowLightCurtainPreview);
+            AddStep("use comparison grid", () =>
+            {
+                originalBackground.SetDeepWater(false);
+                effectBackground.SetDeepWater(false);
+            });
             foreach (var scope in Enum.GetValues<WeatherEffectScope>())
                 AddStep($"scope: {scope}", () => weather.Scope = scope);
             AddStep("scope: global", () => weather.Scope = WeatherEffectScope.Global);
@@ -133,6 +141,10 @@ namespace osu.Framework.Tests.Visual.Ez
             AddSliderStep("water: caustic scale", 0.1f, 8f, 1f, value => weather.Underwater = weather.Underwater with { Scale = value });
             AddSliderStep("water: brightness", 0f, 2f, 0.65f, value => weather.Underwater = weather.Underwater with { Brightness = value });
             AddSliderStep("water: blue-green tint", 0f, 1f, 0.3f, value => weather.Underwater = weather.Underwater with { Tint = value });
+            AddSliderStep("curtain: density", 0.1f, 8f, 1f, value => weather.UnderwaterLightCurtain = weather.UnderwaterLightCurtain with { Scale = value });
+            AddSliderStep("curtain: brightness", 0f, 2f, 0.5f, value => weather.UnderwaterLightCurtain = weather.UnderwaterLightCurtain with { Brightness = value });
+            AddSliderStep("curtain: downward falloff", 0.1f, 8f, 2f, value => weather.UnderwaterLightCurtain = weather.UnderwaterLightCurtain with { Falloff = value });
+            AddSliderStep("curtain: sway", 0f, 1f, 0.35f, value => weather.UnderwaterLightCurtain = weather.UnderwaterLightCurtain with { Sway = value });
             AddSliderStep("rain: density", 0f, 1f, 0.45f, value => weather.OvercastRain = weather.OvercastRain with { Density = value });
             AddSliderStep("rain: wind", -2f, 2f, 0.2f, value => weather.OvercastRain = weather.OvercastRain with { Wind = value });
             AddSliderStep("rain: overcast", 0f, 1f, 0.4f, value => weather.OvercastRain = weather.OvercastRain with { Cloudiness = value });
@@ -147,14 +159,32 @@ namespace osu.Framework.Tests.Visual.Ez
                 weather.PreviewTime = null;
                 weather.DesertHeat = DesertHeatSettings.Default;
                 weather.Underwater = UnderwaterSettings.Default;
+                weather.UnderwaterLightCurtain = UnderwaterLightCurtainSettings.Default;
                 weather.OvercastRain = OvercastRainSettings.Default;
                 weather.CornerRadius = 24;
+                originalBackground.SetDeepWater(false);
+                effectBackground.SetDeepWater(false);
             });
+        }
+
+        public void ShowLightCurtainPreview()
+        {
+            weather.Effect = WeatherEffect.UnderwaterLightCurtain;
+            originalBackground.SetDeepWater(true);
+            effectBackground.SetDeepWater(true);
+        }
+
+        [Test]
+        public void TestUnderwaterLightCurtainPreview()
+        {
+            AddStep("show deep-water light curtain", ShowLightCurtainPreview);
+            AddAssert("light curtain is active", () => weather.Effect == WeatherEffect.UnderwaterLightCurtain && weather.IsEffectActive);
         }
 
         [TestCase(WeatherEffect.DesertHeat)]
         [TestCase(WeatherEffect.Underwater)]
         [TestCase(WeatherEffect.OvercastRain)]
+        [TestCase(WeatherEffect.UnderwaterLightCurtain)]
         public void TestSwitchingPreservesChildrenAndInput(WeatherEffect effect)
         {
             Drawable[]? originalChildren = null;
@@ -269,12 +299,13 @@ namespace osu.Framework.Tests.Visual.Ez
     internal partial class WeatherTestBackground : Container
     {
         public bool Animate { get; set; } = true;
+        private readonly Box background;
         private readonly Box moving;
 
         public WeatherTestBackground()
         {
             RelativeSizeAxes = Axes.Both;
-            Add(new Box
+            Add(background = new Box
             {
                 RelativeSizeAxes = Axes.Both,
                 Colour = ColourInfo.GradientVertical(new Color4(0.08f, 0.19f, 0.3f, 1), new Color4(0.55f, 0.4f, 0.22f, 1)),
@@ -310,6 +341,19 @@ namespace osu.Framework.Tests.Visual.Ez
             base.Update();
             if (Animate)
                 moving.Rotation = 20 + (float)(Time.Current / 70);
+        }
+
+        public void SetDeepWater(bool deepWater)
+        {
+            background.Colour = deepWater
+                ? ColourInfo.GradientVertical(new Color4(0.02f, 0.13f, 0.24f, 1), new Color4(0.005f, 0.02f, 0.065f, 1))
+                : ColourInfo.GradientVertical(new Color4(0.08f, 0.19f, 0.3f, 1), new Color4(0.55f, 0.4f, 0.22f, 1));
+
+            foreach (var drawable in Children)
+            {
+                if (drawable != background)
+                    drawable.Alpha = deepWater ? 0 : 1;
+            }
         }
     }
 }

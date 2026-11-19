@@ -29,6 +29,10 @@ weather.OvercastRain = weather.OvercastRain with { Density = 0.6f, Wind = -0.4f 
   0.65）、色调强度 `Tint`（0–1，默认 0.3）。
 - `OvercastRain`：分层细雨、风向偏移、阴天去饱和与压暗。`OvercastRainSettings` 包含密度 `Density`（0–1，默认 0.45）、风向 `Wind`
   （−2–2，默认 0.2）、阴天程度 `Cloudiness`（0–1，默认 0.4）。
+- `UnderwaterLightCurtain`：海底平视视角的蓝青极光光帘，从画面顶部垂落，柔边光带缓慢起伏并向下消散。
+  `UnderwaterLightCurtainSettings` 包含密度 `Scale`（0.1–8，默认 1）、亮度 `Brightness`（0–2，默认 0.5）、向下衰减速度
+  `Falloff`（0.1–8，默认 2）和摆动幅度 `Sway`（0–1，默认 0.35）。`Falloff` 越高，光帘越快淡出；亮度为零时保留原图。
+  该效果通过二维着色器模拟柔光，可与现有 `Underwater` 焦散波光独立选择。
 - `Intensity`：0–1，默认 1；为 0 时完全直通。`AnimationSpeed`：0–10，默认 1，为 0 时冻结天气动画。
 - `PreviewTime`：可空的固定预览时间，单位秒，范围 0–86400。设置后暂停天气时间推进，便于复现截图；设为 `null`
   后从原动画进度继续。天气暂停不会停止子树动画或输入。
@@ -36,6 +40,15 @@ weather.OvercastRain = weather.OvercastRain with { Density = 0.6f, Wind = -0.4f 
 
 在 update 线程修改属性。越界值、NaN、Infinity、未定义枚举会抛出 `ArgumentOutOfRangeException`，并保留原参数。每组参数都是值类型，通过
 `with` 修改不会影响其他实例。
+
+```csharp
+weather.Effect = WeatherEffect.UnderwaterLightCurtain;
+weather.UnderwaterLightCurtain = UnderwaterLightCurtainSettings.Default with
+{
+    Brightness = 0.6f,
+    Falloff = 1.5f,
+};
+```
 
 ## 绘制行为
 
@@ -54,6 +67,9 @@ weather.OvercastRain = weather.OvercastRain with { Density = 0.6f, Wind = -0.4f 
 
 `TestSwitchingPreservesChildrenAndInput` 和 `TestAnimationClock` 同时作为可交互测试和 NUnit 自动化回归用例。
 
+点击 `preview underwater light curtain`，或运行 `TestUnderwaterLightCurtainPreview`，可切换到深海蓝渐变背景，左侧为原图，右侧为蓝青光帘。
+`curtain:` 开头的四个滑块调节密度、亮度、向下衰减和摆动；动画速度与固定时间沿用公共控件。点击 `use comparison grid` 恢复网格背景。
+
 ## 自动验证
 
 ```powershell
@@ -63,7 +79,7 @@ dotnet test osu.Framework.Tests --filter 'FullyQualifiedName~WeatherEffectContai
 普通测试覆盖场景矩阵、参数与枚举校验、实例隔离、uniform 布局、交互、时钟，以及 GLSL / ESSL / HLSL / MSL 实际交叉编译；Windows
 下还验证 HLSL 字节码编译。
 
-`TestSceneWeatherEffectsLoading` 使用真实 Test Browser 加载流程，覆盖首次打开、热重载、重置场景，以及全部 13
+`TestSceneWeatherEffectsLoading` 使用真实 Test Browser 加载流程，覆盖首次打开、热重载、重置场景，以及全部 17
 个参数滑块的初始化、修改和恢复默认。
 
 GPU 测试是显式用例，需要桌面和相应图形后端。每次命令启动独立测试进程，因为后端环境变量在进程初始化时读取。
@@ -78,5 +94,6 @@ $env:OSU_GRAPHICS_SURFACE = 'Direct3D11'
 dotnet test osu.Framework.Tests --no-build --filter 'FullyQualifiedName=osu.Framework.Tests.Ez.WeatherEffectRenderingTest.TestRenderWeather'
 ```
 
-GPU 用例验证三种效果改变画面、不同时间有动画、固定时间可复现、零强度直通、场景切换、透明区域、颜色与透明度、父级圆角、子树外画面和前景不受影响，以及改变尺寸与旋转。截图保存在测试工作目录的
+GPU 用例验证四种效果改变画面、不同时间有动画、固定时间可复现、零强度直通、场景切换、透明区域、颜色与透明度、父级圆角、子树外画面和前景不受影响，以及改变尺寸与旋转。
+光帘额外验证上部增亮高于下部、参数修改改变画面，以及 Test Browser 中的深海预览。截图保存在测试工作目录的
 `weather-screenshots/<backend>/` 并附加到测试结果；测试不会自动在无 GPU 的 CI 中执行。

@@ -24,6 +24,7 @@ namespace osu.Framework.Graphics.Containers
         private IShader heatShader = null!;
         private IShader underwaterShader = null!;
         private IShader rainShader = null!;
+        private IShader lightCurtainShader = null!;
 
         private WeatherEffect effect;
 
@@ -176,6 +177,22 @@ namespace osu.Framework.Graphics.Containers
             }
         }
 
+        private UnderwaterLightCurtainSettings underwaterLightCurtain = UnderwaterLightCurtainSettings.Default;
+
+        public UnderwaterLightCurtainSettings UnderwaterLightCurtain
+        {
+            get => underwaterLightCurtain;
+            set
+            {
+                ValidateRange(value.Scale, 0.1f, 8);
+                ValidateRange(value.Brightness, 0, 2);
+                ValidateRange(value.Falloff, 0.1f, 8);
+                ValidateRange(value.Sway, 0, 1);
+                underwaterLightCurtain = value;
+                Invalidate(Invalidation.DrawNode);
+            }
+        }
+
         public bool IsEffectActive => Effect != WeatherEffect.None && Intensity > 0
                                                                    && (Scope == WeatherEffectScope.Global || (Scope == WeatherEffectScope.Gameplay) == IsGameplay);
 
@@ -197,6 +214,7 @@ namespace osu.Framework.Graphics.Containers
             heatShader = shaders.Load(VertexShaderDescriptor.TEXTURE_2, FragmentShaderDescriptor.DESERT_HEAT);
             underwaterShader = shaders.Load(VertexShaderDescriptor.TEXTURE_2, FragmentShaderDescriptor.UNDERWATER);
             rainShader = shaders.Load(VertexShaderDescriptor.TEXTURE_2, FragmentShaderDescriptor.OVERCAST_RAIN);
+            lightCurtainShader = shaders.Load(VertexShaderDescriptor.TEXTURE_2, FragmentShaderDescriptor.UNDERWATER_LIGHT_CURTAIN);
         }
 
         protected override void Update()

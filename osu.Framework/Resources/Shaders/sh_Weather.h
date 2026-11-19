@@ -17,6 +17,7 @@ layout(std140, set = 0, binding = 0) uniform m_WeatherParameters
     highp vec4 w_Heat;
     highp vec4 w_Water;
     highp vec4 w_Rain;
+    highp vec4 w_Curtain;
 };
 
 layout(set = 1, binding = 0) uniform lowp texture2D m_Texture;
