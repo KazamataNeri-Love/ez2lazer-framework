@@ -114,9 +114,9 @@ namespace osu.Framework.Tests.Graphics
             var native = (DummyNativeTexture)texture.NativeTexture;
             var pixels = opaquePixels();
 
-            const int queuedUploads = 10;
+            const int queued_uploads = 10;
 
-            for (int i = 0; i < queuedUploads; i++)
+            for (int i = 0; i < queued_uploads; i++)
             {
                 texture.SetData(new SharedPixelUpload(pixels)
                 {
@@ -128,12 +128,12 @@ namespace osu.Framework.Tests.Graphics
             // while leaving the remaining uploads throttled for subsequent frames.
             Assert.That(native.Upload(), Is.True);
             Assert.That(native.HasBackingResources, Is.True);
-            Assert.That(native.PendingUploadCount, Is.EqualTo(queuedUploads - 1));
+            Assert.That(native.PendingUploadCount, Is.EqualTo(queued_uploads - 1));
             Assert.That(native.UploadComplete, Is.False);
 
             // Once backing resources exist, further uploads in the same exhausted frame remain throttled.
             Assert.That(native.Upload(), Is.False);
-            Assert.That(native.PendingUploadCount, Is.EqualTo(queuedUploads - 1));
+            Assert.That(native.PendingUploadCount, Is.EqualTo(queued_uploads - 1));
         }
 
         private static BurstResult queueAndDrainAtlas(DummyRenderer renderer, Rgba32[] pixels, int glyphCount)
