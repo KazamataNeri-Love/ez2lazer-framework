@@ -229,6 +229,8 @@ namespace osu.Framework.Graphics.OpenGL.Textures
 
         private int textureId;
 
+        protected virtual bool HasBackingResources => textureId > 0;
+
         public virtual int TextureId
         {
             get
@@ -278,7 +280,7 @@ namespace osu.Framework.Graphics.OpenGL.Textures
             }
 
             // ReSharper disable once InconsistentlySynchronizedField (Drain locks internally around peek/dequeue).
-            TextureUploadDrainer.Drain(uploadQueue, Renderer, BypassTextureUploadQueueing, performUpload);
+            TextureUploadDrainer.Drain(uploadQueue, Renderer, BypassTextureUploadQueueing, !HasBackingResources, performUpload);
 
             if (!BypassTextureUploadQueueing && !UploadComplete)
                 Renderer.EnqueueTextureUpload(this);

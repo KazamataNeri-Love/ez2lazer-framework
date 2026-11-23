@@ -22,6 +22,8 @@ namespace osu.Framework.Graphics.OpenGL.Textures
 
         private NativeMemoryTracker.NativeMemoryLease? memoryLease;
 
+        protected override bool HasBackingResources => TextureIds != null;
+
         public override int TextureId => TextureIds?[0] ?? 0;
 
         private int textureSize;

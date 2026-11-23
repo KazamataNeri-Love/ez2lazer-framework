@@ -23,7 +23,19 @@ namespace osu.Framework.Graphics.Rendering
             Logger.Log($"Texture [{name}] {texture.Width}x{texture.Height} upload queue is large ({queueCount})", LoggingTarget.Performance);
         }
 
-        public static int Drain(Queue<ITextureUpload> uploadQueue, IRenderer renderer, bool bypassQueueing, Action<ITextureUpload> performUpload)
+        /// <summary>
+        /// Drains pending uploads from <paramref name="uploadQueue"/> within the renderer's per-frame upload budget.
+        /// </summary>
+        /// <param name="uploadQueue">The texture's pending upload queue.</param>
+        /// <param name="renderer">The active renderer tracking per-frame upload budgets.</param>
+        /// <param name="bypassQueueing">Whether all queued uploads for this texture bypass per-frame budget limits.</param>
+        /// <param name="requireInitialUpload">
+        /// Whether this texture currently has no GPU backing resource yet. When <c>true</c>, the first upload is allowed to
+        /// bypass the remaining per-frame budget (while still accounting into the frame counters) so binding the texture
+        /// cannot observe an uninitialised backend resource; any subsequent uploads still obey the budget.
+        /// </param>
+        /// <param name="performUpload">Callback that uploads a single dequeued <see cref="ITextureUpload"/>.</param>
+        public static int Drain(Queue<ITextureUpload> uploadQueue, IRenderer renderer, bool bypassQueueing, bool requireInitialUpload, Action<ITextureUpload> performUpload)
         {
             int uploaded = 0;
 
@@ -38,8 +50,9 @@ namespace osu.Framework.Graphics.Rendering
 
                     upload = uploadQueue.Peek();
                     int pixels = Math.Max(0, upload.Bounds.Width * upload.Bounds.Height);
+                    bool bypassBudget = bypassQueueing || (uploaded == 0 && requireInitialUpload);
 
-                    if (!renderer.TryBeginTextureUpload(pixels, bypassQueueing))
+                    if (!renderer.TryBeginTextureUpload(pixels, bypassBudget))
                         break;
 
                     uploadQueue.Dequeue();

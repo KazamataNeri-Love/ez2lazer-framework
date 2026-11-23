@@ -184,6 +184,8 @@ namespace osu.Framework.Graphics.Veldrid.Textures
             set => resourcesArray[0] = value;
         }
 
+        protected virtual bool HasBackingResources => resources != null;
+
         public virtual IReadOnlyList<VeldridTextureResources> GetResourceList()
         {
             if (resources == null)
@@ -223,7 +225,7 @@ namespace osu.Framework.Graphics.Veldrid.Textures
             uploadedRegions.Clear();
 
             // ReSharper disable once InconsistentlySynchronizedField (Drain locks internally around peek/dequeue).
-            TextureUploadDrainer.Drain(uploadQueue, Renderer, BypassTextureUploadQueueing, upload =>
+            TextureUploadDrainer.Drain(uploadQueue, Renderer, BypassTextureUploadQueueing, !HasBackingResources, upload =>
             {
                 DoUpload(upload);
                 uploadedRegions.Add(upload.Bounds);
