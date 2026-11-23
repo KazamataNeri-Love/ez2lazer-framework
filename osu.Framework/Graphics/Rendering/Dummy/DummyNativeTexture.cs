@@ -14,6 +14,8 @@ namespace osu.Framework.Graphics.Rendering.Dummy
     {
         private readonly Queue<ITextureUpload> uploadQueue = new Queue<ITextureUpload>();
 
+        internal bool HasBackingResources { get; private set; }
+
         public IRenderer Renderer { get; }
         public TextureFilteringMode FilteringMode => TextureFilteringMode.Linear;
         public TexturePixelFormat PixelFormat => TexturePixelFormat.R8G8B8A8Float;
@@ -62,7 +64,7 @@ namespace osu.Framework.Graphics.Rendering.Dummy
         public bool Upload()
         {
             // ReSharper disable once InconsistentlySynchronizedField (Drain locks internally around peek/dequeue).
-            int uploaded = TextureUploadDrainer.Drain(uploadQueue, Renderer, BypassTextureUploadQueueing, _ => { });
+            int uploaded = TextureUploadDrainer.Drain(uploadQueue, Renderer, BypassTextureUploadQueueing, !HasBackingResources, _ => HasBackingResources = true);
 
             if (!BypassTextureUploadQueueing && !UploadComplete)
                 ((Renderer)Renderer).EnqueueTextureUpload(this);

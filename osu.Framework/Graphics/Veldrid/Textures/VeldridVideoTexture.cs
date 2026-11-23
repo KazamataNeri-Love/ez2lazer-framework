@@ -80,6 +80,8 @@ namespace osu.Framework.Graphics.Veldrid.Textures
             }
         }
 
+        protected override bool HasBackingResources => resourceList != null;
+
         public override IReadOnlyList<VeldridTextureResources> GetResourceList() => resourceList.AsNonNull();
 
         #region Disposal

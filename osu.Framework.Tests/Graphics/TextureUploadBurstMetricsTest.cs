@@ -70,6 +70,72 @@ namespace osu.Framework.Tests.Graphics
             Assert.That(atlas.EnqueueMs + atlas.DrainMs, Is.LessThan(5000));
         }
 
+        [Test]
+        public void InitialUploadCompletesWhenFrameBudgetExhausted()
+        {
+            var renderer = new DummyRenderer();
+            renderer.ResetTextureUploadBudget();
+
+            // Exhaust both pixel and region budgets before drawing a freshly-created texture (e.g. Path's 72x1 lookup texture).
+            Assert.That(renderer.TryBeginTextureUpload(renderer.MaxPixelsUploadedPerFrame + 1, bypassBudget: false), Is.True);
+            Assert.That(renderer.HasRemainingTextureUploadBudget, Is.False);
+
+            int regionsBefore = renderer.TextureUploadRegionsThisFrame;
+
+            var lookupTexture = renderer.CreateTexture(72, 1, manualMipmaps: true);
+            var native = (DummyNativeTexture)lookupTexture.NativeTexture;
+            var pixels = new Rgba32[72];
+            Array.Fill(pixels, new Rgba32(255, 255, 255, 255));
+
+            lookupTexture.SetData(new SharedPixelUpload(pixels)
+            {
+                Bounds = new RectangleI(0, 0, 72, 1)
+            });
+
+            Assert.That(native.HasBackingResources, Is.False);
+            Assert.That(renderer.BindTexture(lookupTexture, 1, null, null), Is.True);
+            Assert.That(native.HasBackingResources, Is.True);
+            Assert.That(native.UploadComplete, Is.True);
+            Assert.That(renderer.TextureUploadRegionsThisFrame, Is.EqualTo(regionsBefore + 1));
+        }
+
+        [Test]
+        public void InitialUploadOnlyBypassesBudgetOnceForMultiUploadTexture()
+        {
+            var renderer = new DummyRenderer();
+            renderer.ResetTextureUploadBudget();
+
+            for (int i = 0; i < renderer.MaxUploadsPerFrame; i++)
+                Assert.That(renderer.TryBeginTextureUpload(1, bypassBudget: false), Is.True);
+
+            Assert.That(renderer.HasRemainingTextureUploadBudget, Is.False);
+
+            var texture = renderer.CreateTexture(atlas_size, atlas_size, manualMipmaps: true);
+            var native = (DummyNativeTexture)texture.NativeTexture;
+            var pixels = opaquePixels();
+
+            const int queued_uploads = 10;
+
+            for (int i = 0; i < queued_uploads; i++)
+            {
+                texture.SetData(new SharedPixelUpload(pixels)
+                {
+                    Bounds = new RectangleI(i * region_size, 0, region_size, region_size)
+                });
+            }
+
+            // First upload creates backing resources even though the frame budget is exhausted,
+            // while leaving the remaining uploads throttled for subsequent frames.
+            Assert.That(native.Upload(), Is.True);
+            Assert.That(native.HasBackingResources, Is.True);
+            Assert.That(native.PendingUploadCount, Is.EqualTo(queued_uploads - 1));
+            Assert.That(native.UploadComplete, Is.False);
+
+            // Once backing resources exist, further uploads in the same exhausted frame remain throttled.
+            Assert.That(native.Upload(), Is.False);
+            Assert.That(native.PendingUploadCount, Is.EqualTo(queued_uploads - 1));
+        }
+
         private static BurstResult queueAndDrainAtlas(DummyRenderer renderer, Rgba32[] pixels, int glyphCount)
         {
             var enqueueWatch = Stopwatch.StartNew();
